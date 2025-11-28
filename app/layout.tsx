@@ -108,19 +108,7 @@ export default function RootLayout({
       >
         <CartProvider>{children}</CartProvider>
 
-        {/* Botão flutuante do WhatsApp */}
-        <a
-          href="https://wa.me/16999516763‬"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="whatsapp-float"
-        >
-          <img
-            src="https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/whatsapp.svg"
-            alt="WhatsApp"
-            className="whatsapp-icon"
-          />
-        </a>
+  
       </body>
     </html>
   );
