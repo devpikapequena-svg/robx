@@ -20,7 +20,7 @@ export default function CartPage() {
   const subtotal = cart.reduce((acc, item) => acc + item.price * item.qty, 0);
 
   const [showPixModal, setShowPixModal] = useState(false);
-const [pixData, setPixData] = useState<{ code: string; base64: string | null } | null>(null);
+  const [pixData, setPixData] = useState<{ code: string; base64: string | null } | null>(null);
   const [loading, setLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(300);
 
@@ -28,6 +28,17 @@ const [pixData, setPixData] = useState<{ code: string; base64: string | null } |
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [formError, setFormError] = useState("");
+
+  // 🔹 Suporte via WhatsApp no modal
+  const [showSupportBox, setShowSupportBox] = useState(false);
+  const whatsappNumber = "5575920018871"; // troque para o seu se quiser
+
+  const handleSendWhatsApp = () => {
+    const defaultMessage =
+      "Olá! Acabei de gerar um PIX no site, já realizei o pagamento mas o status não apareceu como confirmado. Quero enviar o comprovante para liberação do meu pedido.";
+    const url = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(defaultMessage)}`;
+    window.open(url, "_blank");
+  };
 
   // Reset timer ao abrir modal
   useEffect(() => {
@@ -41,49 +52,61 @@ const [pixData, setPixData] = useState<{ code: string; base64: string | null } |
     return () => clearInterval(i);
   }, [timeLeft, showPixModal]);
 
-useEffect(() => {
-  if (!showPixModal) return;
-
-  const extId = localStorage.getItem("external_id");
-  if (!extId) return;
-
-  // congela o subtotal no momento em que o modal abriu
-  const purchaseValue = subtotal;
-
-  let stopped = false;
-
-  const checkStatus = async () => {
-    try {
-      const res = await fetch(`/api/create-payment?externalId=${extId}`);
-      const data = await res.json();
-
-      if (data.status === "PAID") {
-        window.gtag?.("event", "conversion", {
-          send_to: "AW",
-          value: purchaseValue,
-          currency: "BRL",
-          transaction_id: extId,
-        });
-
-        localStorage.removeItem("external_id");
-        router.push("/success");
-      } else if (!stopped) {
-        setTimeout(checkStatus, 7000);
-      }
-    } catch (err) {
-      console.error("Erro ao verificar status:", err);
-      if (!stopped) setTimeout(checkStatus, 10000);
+  // Mostrar box de suporte após um tempo com o modal aberto
+  useEffect(() => {
+    if (showPixModal) {
+      const timer = setTimeout(() => {
+        setShowSupportBox(true);
+      }, 30000); // ~30s
+      return () => clearTimeout(timer);
+    } else {
+      setShowSupportBox(false);
     }
-  };
+  }, [showPixModal]);
 
-  checkStatus();
+  // Verifica status do pagamento enquanto o modal estiver aberto
+  useEffect(() => {
+    if (!showPixModal) return;
 
-  return () => {
-    stopped = true;
-  };
-}, [showPixModal]);
+    const extId = localStorage.getItem("external_id");
+    if (!extId) return;
 
+    // congela o subtotal no momento em que o modal abriu
+    const purchaseValue = subtotal;
 
+    let stopped = false;
+
+    const checkStatus = async () => {
+      try {
+        const res = await fetch(`/api/create-payment?externalId=${extId}`);
+        const data = await res.json();
+
+        if (data.status === "PAID") {
+          // evento de conversão
+          window.gtag?.("event", "conversion", {
+            send_to: "AW",
+            value: purchaseValue,
+            currency: "BRL",
+            transaction_id: extId,
+          });
+
+          localStorage.removeItem("external_id");
+          router.push("/sucess");
+        } else if (!stopped) {
+          setTimeout(checkStatus, 7000);
+        }
+      } catch (err) {
+        console.error("Erro ao verificar status:", err);
+        if (!stopped) setTimeout(checkStatus, 10000);
+      }
+    };
+
+    checkStatus();
+
+    return () => {
+      stopped = true;
+    };
+  }, [showPixModal, subtotal, router]);
 
   const formatTime = (seconds: number) => {
     const m = String(Math.floor(seconds / 60)).padStart(2, "0");
@@ -91,88 +114,88 @@ useEffect(() => {
     return `${m}:${s}`;
   };
 
-  const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const validateEmail = (email: string) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const handleCheckout = async () => {
-  if (!firstName || !lastName) {
-    setFormError("Por favor, preencha nome e sobrenome");
-    return;
-  }
-  if (!email || !validateEmail(email)) {
-    setFormError("Por favor, insira um email válido");
-    return;
-  }
-
-  setFormError("");
-  setLoading(true);
-
-  try {
-    const externalId = `pedido_${Date.now()}`;
-
-    const payload = {
-      name: `${firstName.trim()} ${lastName.trim()}`,
-      email,
-      phone: "+5511999998888",
-      amount: subtotal,
-      externalId,
-      items: cart.map((item) => ({
-        id: item.id,
-        title: item.name,
-        unitPrice: item.price,
-        quantity: item.qty,
-        tangible: false,
-      })),
-    };
-
-    const res = await fetch("/api/create-payment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      alert("Erro ao gerar Pix: " + (data.message || data.error || "desconhecido"));
+    if (!firstName || !lastName) {
+      setFormError("Por favor, preencha nome e sobrenome");
+      return;
+    }
+    if (!email || !validateEmail(email)) {
+      setFormError("Por favor, insira um email válido");
       return;
     }
 
-    // pega o obj pix em qualquer formato
-    const pixObj =
-      data.pix ||
-      data.raw?.pix ||
-      data.data?.pix ||
-      null;
+    setFormError("");
+    setLoading(true);
 
-    let code: string | null = null;
-    let base64: string | null = null;
+    try {
+      const externalId = `pedido_${Date.now()}`;
 
-    if (pixObj) {
-      if (typeof pixObj.qrcode === "string") code = pixObj.qrcode;
-      else if (typeof pixObj.code === "string") code = pixObj.code;
-      else if (typeof pixObj.qrCodeText === "string") code = pixObj.qrCodeText;
-      else if (typeof pixObj.emv === "string") code = pixObj.emv;
-      else if (typeof pixObj.payload === "string") code = pixObj.payload;
+      const payload = {
+        name: `${firstName.trim()} ${lastName.trim()}`,
+        email,
+        phone: "+5511999998888",
+        amount: subtotal,
+        externalId,
+        items: cart.map((item) => ({
+          id: item.id,
+          title: item.name,
+          unitPrice: item.price,
+          quantity: item.qty,
+          tangible: false,
+        })),
+      };
 
-      if (typeof pixObj.base64 === "string") base64 = pixObj.base64;
-      else if (typeof pixObj.qrCodeImage === "string") base64 = pixObj.qrCodeImage;
-      else if (typeof pixObj.qrcode_base64 === "string") base64 = pixObj.qrcode_base64;
+      const res = await fetch("/api/create-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert("Erro ao gerar Pix: " + (data.message || data.error || "desconhecido"));
+        return;
+      }
+
+      const pixObj =
+        data.pix ||
+        data.raw?.pix ||
+        data.data?.pix ||
+        null;
+
+      let code: string | null = null;
+      let base64: string | null = null;
+
+      if (pixObj) {
+        if (typeof pixObj.qrcode === "string") code = pixObj.qrcode;
+        else if (typeof pixObj.code === "string") code = pixObj.code;
+        else if (typeof pixObj.qrCodeText === "string") code = pixObj.qrCodeText;
+        else if (typeof pixObj.emv === "string") code = pixObj.emv;
+        else if (typeof pixObj.payload === "string") code = pixObj.payload;
+
+        if (typeof pixObj.base64 === "string") base64 = pixObj.base64;
+        else if (typeof pixObj.qrCodeImage === "string") base64 = pixObj.qrCodeImage;
+        else if (typeof pixObj.qrcode_base64 === "string") base64 = pixObj.qrcode_base64;
+      }
+
+      if (code) {
+        setPixData({ code, base64 });
+        localStorage.setItem("external_id", externalId);
+        setShowPixModal(true);
+      } else {
+        alert("Não foi possível gerar o PIX. Resposta inesperada.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao gerar PIX");
+    } finally {
+      setLoading(false);
     }
-
-    if (code) {
-      setPixData({ code, base64 });
-      localStorage.setItem("external_id", externalId);
-      setShowPixModal(true);
-    } else {
-      alert("Não foi possível gerar o PIX. Resposta inesperada.");
-    }
-  } catch (err) {
-    console.error(err);
-    alert("Erro ao gerar PIX");
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   return (
     <div className="cart-root">
@@ -274,50 +297,88 @@ useEffect(() => {
         </div>
       </main>
 
-    {showPixModal && pixData && (
-  <div className="pix-overlay">
-    <div className="pix-modal">
-      <button className="pix-close" onClick={() => setShowPixModal(false)}>
-        ×
-      </button>
-
-{pixData.code && (
-  <div className="pix-qr">
-    <img
-      src={`https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(
-        pixData.code
-      )}`}
-      alt="QR Code Pix"
-    />
-  </div>
-)}
-
-
-      {pixData.code && (
-        <div className="pix-card">
-          <p className="pix-label">Código PIX:</p>
-          <div className="pix-code-group">
-            <textarea value={pixData.code} readOnly />
-            <button
-              onClick={() => navigator.clipboard.writeText(pixData.code)}
-              className="btn-copy"
-            >
-              Copiar
+      {showPixModal && pixData && (
+        <div className="pix-overlay">
+          <div className="pix-modal">
+            <button className="pix-close" onClick={() => setShowPixModal(false)}>
+              ×
             </button>
+
+            {pixData.code && (
+              <div className="pix-qr">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(
+                    pixData.code
+                  )}`}
+                  alt="QR Code Pix"
+                />
+              </div>
+            )}
+
+            {pixData.code && (
+              <div className="pix-card">
+                <p className="pix-label">Código PIX:</p>
+                <div className="pix-code-group">
+                  <textarea value={pixData.code} readOnly />
+                  <button
+                    onClick={() => navigator.clipboard.writeText(pixData.code)}
+                    className="btn-copy"
+                  >
+                    Copiar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <p className="pix-info">
+              Escaneie o QR Code ou copie o código PIX para pagar
+            </p>
+
+            <div className="pix-progress">
+              <div
+                className="progress-bar"
+                style={{ width: `${(timeLeft / 300) * 100}%` }}
+              />
+              <p className="pix-timer">{formatTime(timeLeft)}</p>
+            </div>
+
+            {/* 🔹 Suporte via WhatsApp (após ~30s) */}
+            {showSupportBox && (
+              <div className="pix-whats-box">
+                <div className="pix-whats-header">
+                  <div>
+                    <p className="pix-whats-title">Pagou e não confirmou ainda?</p>
+                    <p className="pix-whats-text">
+                      Fale com nosso time de suporte e enviaremos seu pedido após a conferência.
+                    </p>
+                  </div>
+                </div>
+
+                <p className="pix-whats-extra">
+                  Se o status não aparecer como <strong>confirmado</strong> após alguns minutos,
+                  você pode enviar o <strong>comprovante do PIX</strong> e o{" "}
+                  <strong>e-mail usado na compra</strong> pelo WhatsApp.
+                </p>
+
+                <button className="pix-whats-btn" onClick={handleSendWhatsApp}>
+                  <span className="pix-whats-btn-icon">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="#25D366"
+                    >
+                      <path d="M20.52 3.48A11.8 11.8 0 0 0 12 .2 11.8 11.8 0 0 0 3.48 3.48 11.8 11.8 0 0 0 .2 12c0 2.09.54 4.13 1.57 5.94L.11 23.89l6.07-1.62A12 12 0 0 0 12 23.8h.01c6.54 0 11.8-5.26 11.8-11.8 0-3.16-1.23-6.14-3.29-8.2zm-8.51 18c-1.86 0-3.68-.5-5.27-1.46l-.38-.23-3.6.96.96-3.52-.25-.4A9.73 9.73 0 0 1 2.27 12c0-5.39 4.38-9.77 9.78-9.77 2.61 0 5.06 1.02 6.9 2.86a9.7 9.7 0 0 1 2.87 6.9c0 5.4-4.38 9.78-9.79 9.78zm5.41-7.3c-.29-.14-1.7-.84-1.96-.94-.26-.1-.45-.14-.64.14-.19.29-.74.94-.91 1.13-.17.19-.34.21-.63.07-.29-.14-1.22-.45-2.32-1.44-.85-.76-1.43-1.7-1.6-1.98-.17-.29-.02-.45.13-.6.13-.13.29-.34.43-.51.14-.17.19-.29.29-.48.1-.19.05-.36-.02-.5-.07-.14-.64-1.54-.88-2.11-.23-.55-.47-.47-.64-.48-.17-.01-.36-.01-.55-.01-.19 0-.5.07-.76.36-.26.29-1 1-1 2.45 0 1.45 1.02 2.85 1.16 3.04.14.19 2 3.08 4.85 4.31.68.29 1.21.46 1.63.59.68.22 1.3.19 1.79.12.55-.08 1.7-.7 1.94-1.38.24-.67.24-1.25.17-1.38-.07-.14-.26-.21-.55-.36z" />
+                    </svg>
+                  </span>
+                  Falar com suporte no WhatsApp
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
-
-      <p className="pix-info">Escaneie o QR Code ou copie o código PIX para pagar</p>
-
-      <div className="pix-progress">
-        <div className="progress-bar" style={{ width: `${(timeLeft / 300) * 100}%` }} />
-        <p className="pix-timer">{formatTime(timeLeft)}</p>
-      </div>
-    </div>
-  </div>
-)}
-
 
       <Footer />
     </div>
